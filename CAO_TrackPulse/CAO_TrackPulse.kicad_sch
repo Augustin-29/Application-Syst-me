@@ -1,0 +1,20 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "7e0a8435-d431-4348-b986-f618cdfc0819")
+	(paper "A4")
+	(title_block
+		(title "TrackPulse")
+		(date "2026-10-01")
+		(rev "1.0")
+		(company "Arnaud & Augustin")
+	)
+	(lib_symbols)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+	(embedded_fonts no)
+)
