@@ -2,4 +2,5 @@
 	(version 7)
 	(lib (name "SIM7080G") (type "KiCad") (uri "${KIPRJMOD}/empreinte/SIM7080G") (options "") (descr ""))
 	(lib (name "B2B-PH-K-S") (type "KiCad") (uri "${KIPRJMOD}/empreinte/B2B-PH-K-S") (options "") (descr ""))
+	(lib (name "buzzer") (type "KiCad") (uri "${KIPRJMOD}/empreinte/buzzer.pretty") (options "") (descr ""))
 )

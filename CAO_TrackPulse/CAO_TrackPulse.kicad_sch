@@ -11634,16 +11634,6 @@
 		)
 		(uuid "05c3557e-acfb-452c-a42c-5113a5a86297")
 	)
-	(label "EPD_MOSI"
-		(at 156.21 33.02 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "0bae1d6f-e293-4c8d-8d4d-c74bc7c3b651")
-	)
 	(label "ACC_SDA"
 		(at 138.43 252.73 0)
 		(effects
@@ -11704,6 +11694,16 @@
 		)
 		(uuid "20d70fba-295a-49c9-aa3d-5f2a945ab3fe")
 	)
+	(label "EPD_SCK"
+		(at 156.21 33.02 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "2cffd4e0-013f-4702-983e-70166abe5405")
+	)
 	(label "LED1"
 		(at 297.18 120.65 0)
 		(effects
@@ -11743,16 +11743,6 @@
 			(justify left bottom)
 		)
 		(uuid "3410b8b5-0b9a-4fb7-ae72-dd977ddeda40")
-	)
-	(label "EPD_SCK"
-		(at 156.21 30.48 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "3564424b-1f2b-4e23-98ad-d73efbb9c974")
 	)
 	(label "QUADSPI_CLK"
 		(at 303.53 209.55 0)
@@ -12263,6 +12253,16 @@
 			(justify left bottom)
 		)
 		(uuid "d4c90494-2250-44d6-85a4-35d4fab5a42e")
+	)
+	(label "EPD_MOSI"
+		(at 156.21 30.48 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "d939db3a-a4c4-4b55-9545-b125e322607d")
 	)
 	(label "RST_BLE"
 		(at 297.18 90.17 0)
@@ -16826,7 +16826,7 @@
 				)
 			)
 		)
-		(property "Footprint" "TPS25200DRVR:SON65P200X200X80-7N"
+		(property "Footprint" "Package_SON:WSON-6-1EP_2x2mm_P0.65mm_EP1x1.6mm"
 			(at 57.15 121.92 0)
 			(hide yes)
 			(show_name no)
@@ -17329,7 +17329,7 @@
 				)
 			)
 		)
-		(property "Footprint" "CMT-8530S-SMT:CUI_CMT-8530S-SMT"
+		(property "Footprint" "buzzer:MagneticBuzzer_CUI_CMT-8504"
 			(at 238.76 160.02 0)
 			(hide yes)
 			(show_name no)

@@ -630,24 +630,15 @@
         "filename": "CAO_TrackPulse.kicad_sch",
         "name": "Racine",
         "uuid": "7e0a8435-d431-4348-b986-f618cdfc0819"
-      },
-      {
-        "filename": "cellular.kicad_sch",
-        "name": "Cellular",
-        "uuid": "369ba4b6-8b9f-4378-b3e1-7b71de67db37"
       }
     ],
-    "used_designators": "C20,C22,Y1,J6,#PWR46,#PWR69",
+    "used_designators": "",
     "variants": []
   },
   "sheets": [
     [
       "7e0a8435-d431-4348-b986-f618cdfc0819",
       "Racine"
-    ],
-    [
-      "369ba4b6-8b9f-4378-b3e1-7b71de67db37",
-      "Cellular"
     ]
   ],
   "text_variables": {},
