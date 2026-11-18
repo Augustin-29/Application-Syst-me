@@ -8717,12 +8717,6 @@
 		(uuid "574523ec-e5f9-4968-8007-6bfd86f9642a")
 	)
 	(junction
-		(at 39.37 250.19)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "5ecd78d0-f75b-40d1-acac-f5c7343fc48b")
-	)
-	(junction
 		(at 73.66 265.43)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -9273,16 +9267,6 @@
 			(type default)
 		)
 		(uuid "20776aa0-4683-492b-8cd1-1573aef7862a")
-	)
-	(wire
-		(pts
-			(xy 39.37 262.89) (xy 39.37 266.7)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "20adf0df-9cff-4fd9-bd24-d8c449a49021")
 	)
 	(wire
 		(pts
@@ -10106,16 +10090,6 @@
 	)
 	(wire
 		(pts
-			(xy 39.37 250.19) (xy 39.37 255.27)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "69931e71-eb93-47d2-b7cf-c19b20aa9eab")
-	)
-	(wire
-		(pts
 			(xy 212.09 224.79) (xy 212.09 231.14)
 		)
 		(stroke
@@ -10586,7 +10560,17 @@
 	)
 	(wire
 		(pts
-			(xy 39.37 250.19) (xy 55.88 250.19)
+			(xy 147.32 27.94) (xy 154.94 27.94)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9a706c8a-f429-43a9-80d7-52ef3313d802")
+	)
+	(wire
+		(pts
+			(xy 41.91 250.19) (xy 55.88 250.19)
 		)
 		(stroke
 			(width 0)
@@ -10663,6 +10647,16 @@
 			(type default)
 		)
 		(uuid "a7c37759-1f31-4695-9ce9-1f034fb967de")
+	)
+	(wire
+		(pts
+			(xy 73.66 60.96) (xy 73.66 63.5)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a7e9ef09-d011-4842-81c3-a12a720b09ce")
 	)
 	(wire
 		(pts
@@ -10853,16 +10847,6 @@
 			(type default)
 		)
 		(uuid "b9bce937-2056-48be-b930-e7a40ab272b1")
-	)
-	(wire
-		(pts
-			(xy 147.32 27.94) (xy 154.94 27.94)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "bd46efc5-7f87-4298-889d-32a3fb0adb56")
 	)
 	(wire
 		(pts
@@ -11173,16 +11157,6 @@
 			(type default)
 		)
 		(uuid "d8b56fa1-66f4-4d8e-b1e0-f78016654e03")
-	)
-	(wire
-		(pts
-			(xy 27.94 250.19) (xy 39.37 250.19)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "d8f0e312-cba4-467d-ac2f-866a3f8c6d10")
 	)
 	(wire
 		(pts
@@ -11573,16 +11547,6 @@
 			(type default)
 		)
 		(uuid "f97be13e-64e9-4777-bd9c-0489a9b097b6")
-	)
-	(wire
-		(pts
-			(xy 73.66 60.96) (xy 73.66 63.5)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "faf3cb67-d204-4163-8e35-fd32ae9e5513")
 	)
 	(wire
 		(pts
@@ -12275,7 +12239,7 @@
 		(uuid "e07a59a4-0f40-4068-ae34-f508e9ddf8f7")
 	)
 	(label "RST_BLE"
-		(at 27.94 250.19 0)
+		(at 41.91 250.19 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -13409,7 +13373,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 158.75 27.9399 0)
+			(at 158.75 27.9399 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -18743,86 +18707,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Device:R")
-		(at 39.37 259.08 0)
-		(mirror x)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "8bb66879-1235-4b21-a339-47789a50b650")
-		(property "Reference" "R12"
-			(at 33.02 259.08 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 35.56 259.08 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
-			(at 37.592 259.08 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 39.37 259.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Resistor"
-			(at 39.37 259.08 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "2"
-			(uuid "b15d9e20-e8f2-4fb5-8d89-749887720c42")
-		)
-		(pin "1"
-			(uuid "15070f58-6a1e-4097-9f8a-672d7c393838")
-		)
-		(instances
-			(project "CAO_TrackPulse"
-				(path "/7e0a8435-d431-4348-b986-f618cdfc0819"
-					(reference "R12")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Device:C")
 		(at 53.34 170.18 0)
 		(mirror x)
@@ -19083,7 +18967,7 @@
 				)
 			)
 		)
-		(property "Value" "TPS7A0533PDBV"
+		(property "Value" "TLV75533PDBVR"
 			(at 66.04 158.75 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -22490,84 +22374,6 @@
 			(project "CAO_TrackPulse"
 				(path "/7e0a8435-d431-4348-b986-f618cdfc0819"
 					(reference "F1")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "power:+3V3")
-		(at 39.37 266.7 180)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "e48ad707-94a2-4745-8ef3-8ebdb44b26d5")
-		(property "Reference" "#PWR052"
-			(at 39.37 262.89 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "+3V3"
-			(at 39.37 271.78 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 39.37 266.7 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 39.37 266.7 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+3V3\""
-			(at 39.37 266.7 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "b3a88c56-95ea-4c3a-ada3-d5a11d70b85c")
-		)
-		(instances
-			(project "CAO_TrackPulse"
-				(path "/7e0a8435-d431-4348-b986-f618cdfc0819"
-					(reference "#PWR052")
 					(unit 1)
 				)
 			)
