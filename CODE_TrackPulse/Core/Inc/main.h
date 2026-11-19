@@ -49,6 +49,8 @@ extern "C" {
 
 /* USER CODE END EM */
 
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -57,6 +59,35 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BP2_Pin GPIO_PIN_13
+#define BP2_GPIO_Port GPIOC
+#define RST_BLE_Pin GPIO_PIN_0
+#define RST_BLE_GPIO_Port GPIOH
+#define EPD_CS_Pin GPIO_PIN_1
+#define EPD_CS_GPIO_Port GPIOH
+#define ACC_INT1_Pin GPIO_PIN_1
+#define ACC_INT1_GPIO_Port GPIOA
+#define ACC_INT1_EXTI_IRQn EXTI1_IRQn
+#define BAT_SENSE_Pin GPIO_PIN_4
+#define BAT_SENSE_GPIO_Port GPIOA
+#define BP1_Pin GPIO_PIN_2
+#define BP1_GPIO_Port GPIOB
+#define PWRKEY_Pin GPIO_PIN_14
+#define PWRKEY_GPIO_Port GPIOB
+#define EPD_BUSY_Pin GPIO_PIN_15
+#define EPD_BUSY_GPIO_Port GPIOB
+#define EPD_RST_Pin GPIO_PIN_8
+#define EPD_RST_GPIO_Port GPIOA
+#define EPD_DC_Pin GPIO_PIN_15
+#define EPD_DC_GPIO_Port GPIOA
+#define DTR_SIM7080G_Pin GPIO_PIN_3
+#define DTR_SIM7080G_GPIO_Port GPIOB
+#define LED1_Pin GPIO_PIN_4
+#define LED1_GPIO_Port GPIOB
+#define BAT_STAT_Pin GPIO_PIN_6
+#define BAT_STAT_GPIO_Port GPIOB
+#define FAULT_Pin GPIO_PIN_7
+#define FAULT_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
