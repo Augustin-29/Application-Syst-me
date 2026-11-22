@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "CAO_TrackPulse"
+		},
+		{
+			"path": "APK_TrackPulse"
 		}
 	],
 	"settings": {
