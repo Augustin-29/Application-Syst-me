@@ -14,8 +14,10 @@ import com.example.trackpulse.domain.model.TrackerMode
 import com.example.trackpulse.domain.model.VehicleType
 import com.example.trackpulse.domain.protocol.Crc16Ccitt
 import com.example.trackpulse.domain.protocol.FrameStreamParser
+import com.example.trackpulse.domain.protocol.QrPairingParser
 import com.example.trackpulse.domain.protocol.TrackPulseProtocol
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -210,5 +212,27 @@ class TrackPulseProtocolTest {
         assertNotNull(decodedEntry)
         assertEquals(105, decodedEntry!!.header.sessionId)
         assertEquals(VehicleType.KART, decodedEntry.header.vehicleType)
+    }
+
+    @Test
+    fun qrPairingParser_parsesCompactEPaperCodesAndRejectsInvalid() {
+        val hw = QrPairingParser.parse("TP1:8F3A:492015")
+        assertNotNull(hw)
+        assertEquals("8F3A", hw!!.deviceId)
+        assertEquals("492015", hw.pairingKey)
+        assertEquals("TrackPulse-8F3A", hw.bleNameFilter)
+        assertEquals("tp/8f3a/u", hw.uplinkTopic)
+        assertEquals("tp/8f3a/d", hw.downlinkTopic)
+        assertEquals("tp/8f3a/a", hw.alertTopic)
+        assertFalse(hw.isSimulatedDevice)
+
+        val sim = QrPairingParser.parse(QrPairingParser.SIMULATOR_QR_CODE)
+        assertNotNull(sim)
+        assertTrue(sim!!.isSimulatedDevice)
+        assertEquals("sim1", sim.mqttDeviceId)
+
+        assertNull(QrPairingParser.parse("https://example.com/too-long-for-epaper-200x200"))
+        assertNull(QrPairingParser.parse("TP2:8F3A:492015"))
+        assertNull(QrPairingParser.parse("TP1:A:12"))
     }
 }

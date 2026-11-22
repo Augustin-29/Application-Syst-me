@@ -1,6 +1,8 @@
 package com.example.trackpulse.data.repository
 
 import android.content.Context
+import com.example.trackpulse.data.location.HostPhoneLocation
+import com.example.trackpulse.data.preferences.AppPreferencesRepository
 import com.example.trackpulse.data.transport.HybridTransportManager
 import com.example.trackpulse.data.transport.TransportState
 import com.example.trackpulse.domain.model.AgpsInjectionLog
@@ -21,6 +23,7 @@ import com.example.trackpulse.domain.model.TrackSessionAnalyzer
 import com.example.trackpulse.domain.model.TrackerMode
 import com.example.trackpulse.domain.model.TransportPreference
 import com.example.trackpulse.domain.model.VehicleType
+import com.example.trackpulse.domain.protocol.ParsedPairingQr
 import com.example.trackpulse.domain.protocol.TrackPulseProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -37,12 +41,13 @@ import java.nio.ByteOrder
 
 /**
  * Source unique de vérité de l'application TrackPulse.
- * Agrège l'état du boîtier, la gestion hybride BLE/4G, les sessions Flash NOR,
- * l'historique antivol, la config E-Paper et les scores Easter Egg.
+ * Gère la persistance DataStore (onboarding / appairage QR), le transport Hybride Auto par défaut,
+ * la position temps réel du téléphone hôte, les sessions Flash NOR, les alertes Antivol et l'E-Paper.
  */
 class TrackerRepository(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val preferences = AppPreferencesRepository(context.applicationContext)
 
     private val _mqttSettings = MutableStateFlow(MqttSettings())
     val mqttSettings: StateFlow<MqttSettings> = _mqttSettings.asStateFlow()
@@ -52,6 +57,13 @@ class TrackerRepository(context: Context) {
         scope = scope,
         settingsProvider = { _mqttSettings.value }
     )
+
+    // Null tant que DataStore n'a pas encore émis la valeur persistée (évite tout flash d'écran)
+    private val _onboardingCompleted = MutableStateFlow<Boolean?>(null)
+    val onboardingCompleted: StateFlow<Boolean?> = _onboardingCompleted.asStateFlow()
+
+    private val _pairingKey = MutableStateFlow("")
+    val pairingKey: StateFlow<String> = _pairingKey.asStateFlow()
 
     private val _deviceStatus = MutableStateFlow(DeviceStatus())
     val deviceStatus: StateFlow<DeviceStatus> = _deviceStatus.asStateFlow()
@@ -103,15 +115,36 @@ class TrackerRepository(context: Context) {
     val transportStatusText: StateFlow<String> get() = transportManager.statusMessage
     val rssiDbm: StateFlow<Int?> get() = transportManager.rssiDbm
     val lastAgpsLog: StateFlow<AgpsInjectionLog?> get() = transportManager.lastAgpsLog
+    val hostPhoneLocation: StateFlow<HostPhoneLocation?> get() = transportManager.hostPhoneLocation
 
     private val sessionListAccumulator = linkedMapOf<Int, FlashSessionHeader>()
     private var pendingChunkDeferred: CompletableDeferred<TrackPulseProtocol.FlashChunkResponse>? = null
 
     init {
         observeTransport()
+        transportManager.startPhoneLocationTracking()
         scope.launch {
-            transportManager.connectActiveStrategy()
-            requestFlashSessionList()
+            val stored = preferences.configFlow.first()
+            _mqttSettings.value = stored.mqttSettings
+            _pairingKey.value = stored.pairingKey
+            _onboardingCompleted.value = stored.onboardingCompleted
+
+            if (stored.onboardingCompleted) {
+                transportManager.setPreferenceAndConnect(stored.transportPreference)
+                if (stored.transportPreference == TransportPreference.DEMO_SIMULATOR) {
+                    requestFlashSessionList()
+                }
+            }
+        }
+    }
+
+    fun onPermissionsGranted() {
+        transportManager.startPhoneLocationTracking()
+        if (_onboardingCompleted.value == true &&
+            transportState.value != TransportState.CONNECTED &&
+            transportPreference.value != TransportPreference.DEMO_SIMULATOR
+        ) {
+            reconnect()
         }
     }
 
@@ -213,10 +246,72 @@ class TrackerRepository(context: Context) {
         }
     }
 
+    // ---- Onboarding & Appairage QR Code ----
+
+    fun completeOnboardingWithQr(parsed: ParsedPairingQr) {
+        val targetPref = if (parsed.isSimulatedDevice) {
+            TransportPreference.DEMO_SIMULATOR
+        } else {
+            TransportPreference.AUTO_HYBRID
+        }
+        val updatedSettings = _mqttSettings.value.copy(
+            deviceId = parsed.mqttDeviceId,
+            bleDeviceNameFilter = parsed.bleNameFilter
+        )
+        _mqttSettings.value = updatedSettings
+        _pairingKey.value = parsed.pairingKey
+        _onboardingCompleted.value = true
+
+        scope.launch {
+            preferences.savePairingCompleted(
+                deviceId = parsed.mqttDeviceId,
+                bleNameFilter = parsed.bleNameFilter,
+                pairingKey = parsed.pairingKey,
+                transportPreference = targetPref
+            )
+            transportManager.setPreferenceAndConnect(targetPref)
+            if (parsed.isSimulatedDevice) {
+                _userBannerMessage.value = "Boîtier simulé ${parsed.deviceId} appairé (mode test)"
+                requestFlashSessionList()
+            } else {
+                _userBannerMessage.value = "Boîtier ${parsed.deviceId} appairé — Connexion Hybride Auto"
+            }
+        }
+    }
+
+    fun completeOnboardingDirectBluetooth() {
+        _onboardingCompleted.value = true
+        scope.launch {
+            val cur = _mqttSettings.value
+            preferences.savePairingCompleted(
+                deviceId = cur.deviceId,
+                bleNameFilter = cur.bleDeviceNameFilter,
+                pairingKey = _pairingKey.value,
+                transportPreference = TransportPreference.AUTO_HYBRID
+            )
+            transportManager.setPreferenceAndConnect(TransportPreference.AUTO_HYBRID)
+            _userBannerMessage.value = "Recherche BLE RN4871 (Hybride Auto actif)"
+        }
+    }
+
+    fun relaunchOnboarding() {
+        _onboardingCompleted.value = false
+        scope.launch {
+            preferences.setOnboardingCompleted(false)
+        }
+    }
+
     // ---- Actions publiques pilotées par le ViewModel ----
 
-    fun selectTransportPreference(pref: TransportPreference) {
-        transportManager.setPreferenceAndConnect(pref)
+    fun saveSettingsAndConnect(pref: TransportPreference, settings: MqttSettings) {
+        _mqttSettings.value = settings
+        scope.launch {
+            preferences.saveSettings(pref, settings)
+            transportManager.setPreferenceAndConnect(pref)
+            if (pref == TransportPreference.DEMO_SIMULATOR) {
+                requestFlashSessionList()
+            }
+        }
     }
 
     fun reconnect() {
@@ -272,7 +367,7 @@ class TrackerRepository(context: Context) {
             val ok = transportManager.sendFrame(TrackPulseProtocol.CMD_REQUEST_FIX, payload, requestAck = true)
             if (!ok) {
                 _isRefreshingFix.value = false
-                _userBannerMessage.value = "Impossible d'interroger le boîtier"
+                _userBannerMessage.value = "Impossible d'interroger le boîtier (vérifiez BLE/4G)"
             }
         }
     }
@@ -352,7 +447,7 @@ class TrackerRepository(context: Context) {
                 val req = TrackPulseProtocol.encodeFlashRead(
                     sessionId = header.sessionId,
                     offsetBytes = offset,
-                    maxLen = 224 // 14 échantillons × 16 octets
+                    maxLen = 224
                 )
                 val sent = transportManager.sendFrame(TrackPulseProtocol.CMD_FLASH_READ, req)
                 if (!sent) {
@@ -473,10 +568,6 @@ class TrackerRepository(context: Context) {
 
     fun simulateEasterEggMatch(game: EasterEggGame) {
         transportManager.simulatedTransport.simulateEasterEggGamePlayed(game)
-    }
-
-    fun updateSettings(settings: MqttSettings) {
-        _mqttSettings.value = settings
     }
 
     fun clearBannerMessage() {

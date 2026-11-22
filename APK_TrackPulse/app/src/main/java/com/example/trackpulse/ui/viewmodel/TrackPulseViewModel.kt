@@ -3,6 +3,7 @@ package com.example.trackpulse.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.trackpulse.data.location.HostPhoneLocation
 import com.example.trackpulse.data.repository.TrackerRepository
 import com.example.trackpulse.data.transport.TransportState
 import com.example.trackpulse.domain.model.AgpsInjectionLog
@@ -22,14 +23,18 @@ import com.example.trackpulse.domain.model.TrackSession
 import com.example.trackpulse.domain.model.TrackerMode
 import com.example.trackpulse.domain.model.TransportPreference
 import com.example.trackpulse.domain.model.VehicleType
+import com.example.trackpulse.domain.protocol.ParsedPairingQr
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 data class TrackPulseUiState(
+    val onboardingCompleted: Boolean? = null,
+    val pairingKey: String = "",
     val status: DeviceStatus = DeviceStatus(),
-    val transportPreference: TransportPreference = TransportPreference.DEMO_SIMULATOR,
+    val hostPhoneLocation: HostPhoneLocation? = null,
+    val transportPreference: TransportPreference = TransportPreference.AUTO_HYBRID,
     val transportState: TransportState = TransportState.DISCONNECTED,
     val transportStatusText: String = "",
     val activeChannel: ConnectionChannel = ConnectionChannel.DISCONNECTED,
@@ -63,6 +68,14 @@ class TrackPulseViewModel(application: Application) : AndroidViewModel(applicati
         repository.rssiDbm
     ) { pref, st, txt, ch, rssi ->
         ConnectionBundle(pref, st, txt, ch, rssi)
+    }
+
+    private val onboardingAndLocationBundle = combine(
+        repository.onboardingCompleted,
+        repository.pairingKey,
+        repository.hostPhoneLocation
+    ) { onboarded, key, phoneLoc ->
+        OnboardingLocationBundle(onboarded, key, phoneLoc)
     }
 
     private val hardwareBundle = combine(
@@ -100,16 +113,26 @@ class TrackPulseViewModel(application: Application) : AndroidViewModel(applicati
         EPaperBundle(cfg, scores)
     }
 
-    val uiState: StateFlow<TrackPulseUiState> = combine(
+    private val combinedSystem = combine(
         connectionBundle,
-        hardwareBundle,
+        onboardingAndLocationBundle,
+        hardwareBundle
+    ) { conn, onb, hw ->
+        Triple(conn, onb, hw)
+    }
+
+    val uiState: StateFlow<TrackPulseUiState> = combine(
+        combinedSystem,
         antiTheftBundle,
         telemetryBundle,
         epaperBundle
-    ) { conn, hw, theft, tel, epd ->
+    ) { (conn, onb, hw), theft, tel, epd ->
         val selected = tel.selectedId?.let { tel.downloaded[it] } ?: tel.downloaded.values.firstOrNull()
         TrackPulseUiState(
+            onboardingCompleted = onb.onboardingCompleted,
+            pairingKey = onb.pairingKey,
             status = hw.status,
+            hostPhoneLocation = onb.phoneLocation,
             transportPreference = conn.preference,
             transportState = conn.state,
             transportStatusText = conn.statusText,
@@ -137,9 +160,18 @@ class TrackPulseViewModel(application: Application) : AndroidViewModel(applicati
         initialValue = TrackPulseUiState()
     )
 
+    // ---- Onboarding & Permissions ----
+
+    fun onPermissionsGranted() = repository.onPermissionsGranted()
+    fun completeOnboardingWithQr(parsed: ParsedPairingQr) = repository.completeOnboardingWithQr(parsed)
+    fun completeOnboardingDirectBluetooth() = repository.completeOnboardingDirectBluetooth()
+    fun relaunchOnboarding() = repository.relaunchOnboarding()
+
     // ---- Commandes utilisateur ----
 
-    fun selectTransportPreference(pref: TransportPreference) = repository.selectTransportPreference(pref)
+    fun saveSettingsAndConnect(pref: TransportPreference, settings: MqttSettings) =
+        repository.saveSettingsAndConnect(pref, settings)
+
     fun reconnect() = repository.reconnect()
     fun toggleSimulated4gFallback(enable4g: Boolean) = repository.toggleSimulated4gFallback(enable4g)
     fun injectAgpsNow() = repository.triggerAgpsInjection()
@@ -167,8 +199,6 @@ class TrackPulseViewModel(application: Application) : AndroidViewModel(applicati
     fun stopEasterEgg(game: EasterEggGame) = repository.stopEasterEgg(game)
     fun syncEasterEggScores(game: EasterEggGame) = repository.syncEasterEggScores(game)
     fun simulateEasterEggMatch(game: EasterEggGame) = repository.simulateEasterEggMatch(game)
-
-    fun updateSettings(settings: MqttSettings) = repository.updateSettings(settings)
     fun clearBanner() = repository.clearBannerMessage()
 
     private data class ConnectionBundle(
@@ -177,6 +207,12 @@ class TrackPulseViewModel(application: Application) : AndroidViewModel(applicati
         val statusText: String,
         val channel: ConnectionChannel,
         val rssi: Int?
+    )
+
+    private data class OnboardingLocationBundle(
+        val onboardingCompleted: Boolean?,
+        val pairingKey: String,
+        val phoneLocation: HostPhoneLocation?
     )
 
     private data class HardwareBundle(

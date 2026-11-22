@@ -325,6 +325,43 @@ typedef struct __attribute__((packed)) {
 
 ---
 
+### 4.5 Appairage Initial par QR Code sur E-Paper (200×200 px)
+
+Pour faciliter l'association initiale entre le boîtier STM32 et l'application Android (y compris sur Android 10–15), le firmware affiche au premier démarrage — ou sur appui long simultané `BP1 + BP2` — un **QR Code compact** sur la dalle **Waveshare 1,54" E-Paper V2 (200×200 px)**.
+
+#### Contrainte de densité sur 200×200 px
+Pour garantir une lecture instantanée même en faible luminosité par CameraX + ML Kit, la chaîne encodée doit rester **inférieure à 30 caractères alphanumériques** afin de tenir dans un **QR Code Version 1 (21×21 modules)** ou **Version 2 (25×25 modules)** :
+
+| Version QR | Modules | Capacité Alphanumérique (ECC-M) | Taille d'un module sur 168 px utiles (zone calme incluse) | Lisibilité |
+|---|---|---|---|---|
+| **Version 1** | 21 × 21 | 20 caractères | **8 × 8 pixels** (168×168 px + 16 px marge) | Excellente (recommandé) |
+| **Version 2** | 25 × 25 | 38 caractères | **6 × 6 pixels** (150×150 px + 25 px marge) | Très bonne |
+
+#### Format de la chaîne QR Code (`TP1`)
+```text
+TP1:<ID_BOITIER>:<CLE_PAIRING>
+```
+- **Préfixe fixe :** `TP1` (TrackPulse Protocole v1).
+- **`<ID_BOITIER>` :** 2 à 8 caractères hexadécimaux / alphanumériques majuscules issus des derniers octets de l'UID STM32 (`HAL_GetUIDw0()`), ex. `8F3A`.
+- **`<CLE_PAIRING>` :** code alphanumérique de 4 à 10 caractères (ex. `492015`, 6 chiffres) généré en usine ou stocké en Flash secteur 0.
+- **Exemple réel (15 caractères → QR Version 1) :** `TP1:8F3A:492015`
+- **Exemple mode test simulateur (sans matériel) :** `TP1:SIM1:123456`
+
+#### Dérivation automatique BLE & MQTT côté application Android et STM32
+À partir de `TP1:8F3A:492015`, l'application déduit automatiquement sans aucune saisie manuelle :
+- **Nom publicitaire BLE RN4871 :** `TrackPulse-8F3A` (le scanner accepte également le préfixe générique `TrackPulse` et l'UUID Transparent UART).
+- **Topics MQTT 4G (SIM7080G) :**
+  - Uplink : `tp/8f3a/u`
+  - Downlink : `tp/8f3a/d`
+  - Alertes vol : `tp/8f3a/a`
+
+#### Handshake optionnel d'appairage (`0x08`)
+| Opcode | Nom | Sens | Payload | Description |
+|---|---|---|---|---|
+| `0x08` | `CMD_PAIR_HANDSHAKE` | App → MCU | **10 o** | Valide la clé lue sur QR Code auprès du STM32 (`pairingKey[10]` ASCII nul-terminé) |
+
+---
+
 ## 5. Règles de Sécurité & Robustesse Firmware
 
 1. **Timeout d'assemblage RX :** Si une trame commencée par `0xAA 0x55` n'est pas complète sous 250 ms sur `LPUART1`, le parseur STM32 réinitialise son automate d'état.

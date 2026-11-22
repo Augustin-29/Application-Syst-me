@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.trackpulse"
-        minSdk = 31
+        minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
@@ -49,9 +49,21 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.osmdroid.android)
     implementation(libs.paho.mqttv3)
+
+    // CameraX + ML Kit Barcode Scanning (QR Code appairage E-Paper)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.androidx.camera.mlkit.vision)
+    implementation(libs.mlkit.barcode.scanning)
+
+    // Localisation smartphone hôte (FusedLocationProviderClient + A-GPS)
+    implementation(libs.play.services.location)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

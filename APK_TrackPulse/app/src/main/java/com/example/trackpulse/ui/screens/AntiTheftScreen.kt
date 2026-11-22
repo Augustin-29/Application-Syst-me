@@ -32,8 +32,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.trackpulse.domain.model.TrackerMode
@@ -67,18 +69,19 @@ fun AntiTheftScreen(
 ) {
     val status = uiState.status
     val isArmed = status.mode == TrackerMode.ANTITHEFT_SLEEP
-    val timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.FRANCE)
+    val timeFormatter = remember { SimpleDateFormat("HH:mm:ss", Locale.FRANCE) }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Carte interactive OpenStreetMap (OSMdroid)
+        // 1. Carte interactive OpenStreetMap (Tracker rouge + Téléphone hôte bleu + boutons de centrage)
         item {
             AntiTheftOsmMap(
                 currentLat = status.latitude,
                 currentLon = status.longitude,
+                hostPhoneLocation = uiState.hostPhoneLocation,
                 history = uiState.positionHistory,
                 alerts = uiState.alerts
             )
@@ -152,25 +155,30 @@ fun AntiTheftScreen(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
+
+                // 3 badges distincts et bien espacés (correction espacement sans collage de texte)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "Réveil RTC : ${uiState.mqttSettings.rtcWakeIntervalSec / 60} min",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
+                    AntiTheftStatBadge(
+                        label = "RÉVEIL RTC",
+                        value = "${uiState.mqttSettings.rtcWakeIntervalSec / 60} min",
+                        valueColor = TelemetryCyan,
+                        modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "Seuil LIS3DH : ${uiState.mqttSettings.motionThresholdMg} mg",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
+                    AntiTheftStatBadge(
+                        label = "SEUIL LIS3DH",
+                        value = "${uiState.mqttSettings.motionThresholdMg} mg",
+                        valueColor = VoltGreen,
+                        modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "Coût fix : ~110 o",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = PitAmber
+                    AntiTheftStatBadge(
+                        label = "COÛT FIX 4G",
+                        value = "~110 o",
+                        valueColor = PitAmber,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -335,6 +343,40 @@ fun AntiTheftScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AntiTheftStatBadge(
+    label: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = CarbonElevated,
+        border = BorderStroke(1.dp, CarbonBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = value,
+                style = TelemetryMonoStyle.copy(fontSize = 12.sp),
+                color = valueColor,
+                maxLines = 1
+            )
         }
     }
 }

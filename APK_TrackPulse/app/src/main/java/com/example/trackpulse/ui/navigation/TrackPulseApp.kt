@@ -1,7 +1,9 @@
 package com.example.trackpulse.ui.navigation
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,19 +19,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.DisplaySettings
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -37,6 +44,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -61,11 +70,13 @@ import com.example.trackpulse.ui.components.ConnectionChannelBadge
 import com.example.trackpulse.ui.screens.AntiTheftScreen
 import com.example.trackpulse.ui.screens.DashboardScreen
 import com.example.trackpulse.ui.screens.EPaperEasterEggScreen
+import com.example.trackpulse.ui.screens.OnboardingScreen
 import com.example.trackpulse.ui.screens.TrackTelemetryScreen
 import com.example.trackpulse.ui.theme.AsphaltBlack
 import com.example.trackpulse.ui.theme.CarbonBorder
 import com.example.trackpulse.ui.theme.CarbonElevated
 import com.example.trackpulse.ui.theme.CarbonSurface
+import com.example.trackpulse.ui.theme.PitAmber
 import com.example.trackpulse.ui.theme.RacingRed
 import com.example.trackpulse.ui.theme.TelemetryCyan
 import com.example.trackpulse.ui.theme.TextPrimary
@@ -96,6 +107,32 @@ fun TrackPulseApp(
             snackbarHostState.showSnackbar(msg)
             viewModel.clearBanner()
         }
+    }
+
+    // 1. Chargement initial DataStore
+    when (uiState.onboardingCompleted) {
+        null -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AsphaltBlack),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = RacingRed)
+            }
+            return
+        }
+
+        // 2. Parcours d'initialisation au premier lancement (ou relancé depuis les paramètres)
+        false -> {
+            OnboardingScreen(
+                onQrPaired = viewModel::completeOnboardingWithQr,
+                onSearchBluetoothWithoutQr = viewModel::completeOnboardingDirectBluetooth
+            )
+            return
+        }
+
+        true -> Unit
     }
 
     Scaffold(
@@ -231,9 +268,12 @@ fun TrackPulseApp(
             currentPreference = uiState.transportPreference,
             settings = uiState.mqttSettings,
             onDismiss = { showSettingsDialog = false },
+            onRelaunchOnboarding = {
+                showSettingsDialog = false
+                viewModel.relaunchOnboarding()
+            },
             onSave = { pref, updatedSettings ->
-                viewModel.updateSettings(updatedSettings)
-                viewModel.selectTransportPreference(pref)
+                viewModel.saveSettingsAndConnect(pref, updatedSettings)
                 showSettingsDialog = false
             }
         )
@@ -245,6 +285,7 @@ private fun ConnectivitySettingsDialog(
     currentPreference: TransportPreference,
     settings: MqttSettings,
     onDismiss: () -> Unit,
+    onRelaunchOnboarding: () -> Unit,
     onSave: (TransportPreference, MqttSettings) -> Unit
 ) {
     var pref by remember { mutableStateOf(currentPreference) }
@@ -253,6 +294,14 @@ private fun ConnectivitySettingsDialog(
     var bleName by remember { mutableStateOf(settings.bleDeviceNameFilter) }
     var wakeMinutes by remember { mutableStateOf((settings.rtcWakeIntervalSec / 60).toString()) }
     var threshMg by remember { mutableStateOf(settings.motionThresholdMg.toString()) }
+
+    val productionModes = remember {
+        listOf(
+            TransportPreference.AUTO_HYBRID,
+            TransportPreference.FORCE_BLE,
+            TransportPreference.FORCE_MQTT
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -267,11 +316,11 @@ private fun ConnectivitySettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "STRATÉGIE DE TRANSPORT",
+                    text = "STRATÉGIE DE TRANSPORT (HYBRIDE AUTO PAR DÉFAUT)",
                     style = MaterialTheme.typography.labelSmall,
                     color = TelemetryCyan
                 )
-                TransportPreference.entries.forEach { item ->
+                productionModes.forEach { item ->
                     Surface(
                         onClick = { pref = item },
                         shape = RoundedCornerShape(10.dp),
@@ -339,6 +388,98 @@ private fun ConnectivitySettingsDialog(
                         label = { Text("Seuil LIS3DH (mg)") },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                HorizontalDivider(color = CarbonBorder)
+                Spacer(Modifier.height(2.dp))
+
+                Text(
+                    text = "OPTIONS AVANCÉES / DEBUG & APPAIRAGE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PitAmber
+                )
+
+                // Simulateur matériel isolé uniquement en option avancée / debug
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (pref == TransportPreference.DEMO_SIMULATOR) {
+                        PitAmber.copy(alpha = 0.14f)
+                    } else {
+                        CarbonElevated
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        if (pref == TransportPreference.DEMO_SIMULATOR) PitAmber else CarbonBorder
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Science,
+                                contentDescription = null,
+                                tint = PitAmber,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Simulateur STM32 (Debug)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "Tests sans boîtier physique",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = pref == TransportPreference.DEMO_SIMULATOR,
+                            onCheckedChange = { enabled ->
+                                pref = if (enabled) {
+                                    TransportPreference.DEMO_SIMULATOR
+                                } else {
+                                    TransportPreference.AUTO_HYBRID
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AsphaltBlack,
+                                checkedTrackColor = PitAmber
+                            )
+                        )
+                    }
+                }
+
+                // Relancer l'écran d'onboarding / scan QR Code E-Paper
+                OutlinedButton(
+                    onClick = onRelaunchOnboarding,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(1.dp, TelemetryCyan.copy(alpha = 0.75f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.QrCodeScanner,
+                        contentDescription = null,
+                        tint = TelemetryCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Appairer un boîtier (Scanner QR)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TelemetryCyan
                     )
                 }
             }

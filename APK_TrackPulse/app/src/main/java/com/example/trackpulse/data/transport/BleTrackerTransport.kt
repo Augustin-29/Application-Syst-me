@@ -1,6 +1,5 @@
 package com.example.trackpulse.data.transport
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -15,10 +14,9 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
-import androidx.core.content.ContextCompat
+import com.example.trackpulse.data.permissions.PermissionHelper
 import com.example.trackpulse.domain.model.ConnectionChannel
 import com.example.trackpulse.domain.protocol.FrameStreamParser
 import com.example.trackpulse.domain.protocol.TrackPulseProtocol
@@ -84,23 +82,13 @@ class BleTrackerTransport(
     private var rssiJob: Job? = null
     private var connectDeferred: CompletableDeferred<Boolean>? = null
 
-    fun hasBlePermissions(): Boolean {
-        val scanOk = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_SCAN
-        ) == PackageManager.PERMISSION_GRANTED
-        val connectOk = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.BLUETOOTH_CONNECT
-        ) == PackageManager.PERMISSION_GRANTED
-        return scanOk && connectOk
-    }
+    fun hasBlePermissions(): Boolean = PermissionHelper.hasBlePermissions(context)
 
     @SuppressLint("MissingPermission")
     override suspend fun connect(): Boolean {
         if (!hasBlePermissions()) {
             _state.value = TransportState.ERROR
-            _statusMessage.value = "Permissions BLE requises"
+            _statusMessage.value = "Permissions BLE / Localisation requises"
             return false
         }
 
@@ -120,19 +108,24 @@ class BleTrackerTransport(
         }
 
         _state.value = TransportState.SCANNING
-        _statusMessage.value = "Recherche RN4871 (${deviceNameFilterProvider()})…"
+        val rawFilter = deviceNameFilterProvider().trim()
+        _statusMessage.value = "Recherche BLE RN4871 ($rawFilter)…"
 
         val foundDeviceDeferred = CompletableDeferred<BluetoothDevice?>()
-        val filterName = deviceNameFilterProvider().lowercase()
+        val filterLower = rawFilter.lowercase()
 
         val scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val dev = result.device ?: return
-                val advName = result.scanRecord?.deviceName ?: dev.name ?: ""
+                val advName = (result.scanRecord?.deviceName ?: dev.name ?: "").lowercase()
                 val hasService = result.scanRecord?.serviceUuids?.any {
                     it == ParcelUuid(RN4871_SERVICE_UUID)
                 } == true
-                if (hasService || advName.lowercase().contains(filterName)) {
+                val matchesName = advName.isNotEmpty() && (
+                    advName.contains(filterLower) ||
+                        advName.contains("trackpulse")
+                    )
+                if (hasService || matchesName) {
                     _rssiDbm.value = result.rssi
                     if (!foundDeviceDeferred.isCompleted) {
                         foundDeviceDeferred.complete(dev)

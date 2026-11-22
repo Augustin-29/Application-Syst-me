@@ -1,6 +1,7 @@
 package com.example.trackpulse.data.transport
 
 import android.content.Context
+import com.example.trackpulse.data.location.HostPhoneLocation
 import com.example.trackpulse.data.location.PhoneAgpsProvider
 import com.example.trackpulse.domain.model.AgpsInjectionLog
 import com.example.trackpulse.domain.model.ConnectionChannel
@@ -10,22 +11,26 @@ import com.example.trackpulse.domain.protocol.TrackPulseProtocol
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Orchestrateur hybride BLE (prioritaire) / 4G MQTT (repli automatique) + Simulateur STM32.
+ * Orchestrateur hybride BLE (prioritaire) / 4G MQTT (repli automatique transparent).
  *
- * Règles métier clés :
- * 1. Priorité absolue au BLE (RN4871) dès que le boîtier est à portée pour économiser la batterie et les 500 Mo 4G.
- * 2. Bascule automatique vers MQTT 4G (SIM7080G) si le BLE échoue ou se déconnecte.
- * 3. Injection A-GPS automatique dès qu'une session BLE (ou simulateur local) s'établit.
- * 4. Blocage des téléchargements Flash NOR (8 Mo) sur le canal 4G MQTT.
+ * Comportement par défaut : [TransportPreference.AUTO_HYBRID] (sans simulation par défaut).
+ * 1. Cherche et privilégie systématiquement le BLE (RN4871) dès que le boîtier est à proximité
+ *    afin d'économiser la batterie et de préserver le forfait data 4G de 500 Mo.
+ * 2. Si le BLE est hors portée ou se déconnecte, bascule automatiquement sur 4G LTE / MQTT (SIM7080G)
+ *    tout en sondant périodiquement le retour du BLE pour rebasculer localement.
+ * 3. Injecte automatiquement l'heure UTC + position GPS du téléphone (A-GPS) à chaque connexion BLE.
+ * 4. Verrouille les transferts massifs Flash NOR (8 Mo) au canal BLE uniquement.
  */
 class HybridTransportManager(
     context: Context,
@@ -44,9 +49,10 @@ class HybridTransportManager(
     )
     val simulatedTransport = SimulatedTrackerTransport(scope = scope)
 
-    private var activeTransport: TrackerTransport = simulatedTransport
+    private var activeTransport: TrackerTransport = bleTransport
 
-    private val _preference = MutableStateFlow(TransportPreference.DEMO_SIMULATOR)
+    // Mode HYBRIDE AUTO actif par défaut (mode simulateur réservé aux paramètres avancés ou au test d'onboarding)
+    private val _preference = MutableStateFlow(TransportPreference.AUTO_HYBRID)
     val preference: StateFlow<TransportPreference> = _preference.asStateFlow()
 
     private val _activeChannel = MutableStateFlow(ConnectionChannel.DISCONNECTED)
@@ -55,7 +61,7 @@ class HybridTransportManager(
     private val _transportState = MutableStateFlow(TransportState.DISCONNECTED)
     val transportState: StateFlow<TransportState> = _transportState.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("Prêt à connecter TrackPulse")
+    private val _statusMessage = MutableStateFlow("Hybride Auto : prêt à connecter")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
     private val _rssiDbm = MutableStateFlow<Int?>(null)
@@ -67,8 +73,12 @@ class HybridTransportManager(
     private val _incomingFrames = MutableSharedFlow<TrackPulseProtocol.Frame>(extraBufferCapacity = 128)
     val incomingFrames: SharedFlow<TrackPulseProtocol.Frame> = _incomingFrames.asSharedFlow()
 
+    val hostPhoneLocation: StateFlow<HostPhoneLocation?>
+        get() = agpsProvider.phoneLocation
+
     private var collectorsJob: Job? = null
     private var bleFallbackWatcherJob: Job? = null
+    private var bleRecoveryProbeJob: Job? = null
 
     val isBulkFlashAllowed: Boolean
         get() = _activeChannel.value == ConnectionChannel.BLE ||
@@ -76,6 +86,10 @@ class HybridTransportManager(
 
     val mqttSessionBytes: StateFlow<Long>
         get() = mqttTransport.sessionBytesTransferred
+
+    fun startPhoneLocationTracking() {
+        agpsProvider.startLocationUpdates()
+    }
 
     fun setPreferenceAndConnect(pref: TransportPreference) {
         _preference.value = pref
@@ -87,8 +101,19 @@ class HybridTransportManager(
     suspend fun connectActiveStrategy(): Boolean {
         stopAllTransports()
         return when (_preference.value) {
-            TransportPreference.DEMO_SIMULATOR -> {
-                bindAndConnect(simulatedTransport, triggerAgps = true)
+            TransportPreference.AUTO_HYBRID -> {
+                _transportState.value = TransportState.SCANNING
+                _statusMessage.value = "Hybride Auto : recherche BLE RN4871 prioritaire…"
+                val bleOk = bindAndConnect(bleTransport, triggerAgps = true)
+                if (bleOk) {
+                    watchBleDisconnectForMqttFallback()
+                    true
+                } else {
+                    _statusMessage.value = "BLE hors portée → bascule automatique 4G LTE / MQTT…"
+                    val mqttOk = bindAndConnect(mqttTransport, triggerAgps = false)
+                    startPeriodicBleRecoveryProbe()
+                    mqttOk
+                }
             }
 
             TransportPreference.FORCE_BLE -> {
@@ -99,17 +124,8 @@ class HybridTransportManager(
                 bindAndConnect(mqttTransport, triggerAgps = false)
             }
 
-            TransportPreference.AUTO_HYBRID -> {
-                _transportState.value = TransportState.SCANNING
-                _statusMessage.value = "Hybride : recherche BLE RN4871 prioritaire…"
-                val bleOk = bindAndConnect(bleTransport, triggerAgps = true)
-                if (bleOk) {
-                    watchBleDisconnectForMqttFallback()
-                    true
-                } else {
-                    _statusMessage.value = "BLE hors portée → bascule automatique 4G MQTT…"
-                    bindAndConnect(mqttTransport, triggerAgps = false)
-                }
+            TransportPreference.DEMO_SIMULATOR -> {
+                bindAndConnect(simulatedTransport, triggerAgps = true)
             }
         }
     }
@@ -124,6 +140,32 @@ class HybridTransportManager(
                 ) {
                     _statusMessage.value = "Lien BLE perdu → bascule automatique sur 4G MQTT"
                     bindAndConnect(mqttTransport, triggerAgps = false)
+                    startPeriodicBleRecoveryProbe()
+                }
+            }
+        }
+    }
+
+    /**
+     * Lorsque l'application est en repli 4G MQTT sous HYBRIDE AUTO, sonde périodiquement la
+     * proximité BLE pour reprendre le lien local dès que possible et économiser les 500 Mo 4G.
+     */
+    private fun startPeriodicBleRecoveryProbe() {
+        bleRecoveryProbeJob?.cancel()
+        bleRecoveryProbeJob = scope.launch(Dispatchers.IO) {
+            while (isActive && _preference.value == TransportPreference.AUTO_HYBRID && activeTransport === mqttTransport) {
+                delay(25_000L)
+                if (!bleTransport.hasBlePermissions()) continue
+                val bleFound = bleTransport.connect()
+                if (bleFound) {
+                    mqttTransport.disconnect()
+                    activeTransport = bleTransport
+                    attachCollectors(bleTransport)
+                    _activeChannel.value = ConnectionChannel.BLE
+                    _statusMessage.value = "BLE retrouvé → retour priorité BLE (0 octet 4G)"
+                    injectAgpsNow()
+                    watchBleDisconnectForMqttFallback()
+                    break
                 }
             }
         }
@@ -202,7 +244,7 @@ class HybridTransportManager(
                     "Heure UTC + position approx. injectées"
                 }
             } else {
-                "Échec envoi A-GPS"
+                "En attente de connexion BLE pour A-GPS"
             }
         )
         return sent
@@ -225,6 +267,7 @@ class HybridTransportManager(
 
     private suspend fun stopAllTransports() {
         bleFallbackWatcherJob?.cancel()
+        bleRecoveryProbeJob?.cancel()
         collectorsJob?.cancel()
         bleTransport.disconnect()
         mqttTransport.disconnect()

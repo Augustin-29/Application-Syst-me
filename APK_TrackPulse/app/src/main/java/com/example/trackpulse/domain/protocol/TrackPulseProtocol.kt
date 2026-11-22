@@ -42,6 +42,7 @@ object TrackPulseProtocol {
     const val CMD_BUZZER_PLAY: Byte = 0x05
     const val CMD_REQUEST_FIX: Byte = 0x06
     const val CMD_CLEAR_ALERT: Byte = 0x07
+    const val CMD_PAIR_HANDSHAKE: Byte = 0x08
 
     const val CMD_TRACK_START: Byte = 0x10
     const val CMD_TRACK_STOP: Byte = 0x11
