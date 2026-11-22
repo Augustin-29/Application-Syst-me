@@ -44,12 +44,24 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
+    # TrackPulse Hardware Drivers & Protocol (App/Src)
+    App/Src/tp_board.c
+    App/Src/tp_battery.c
+    App/Src/tp_buzzer.c
+    App/Src/tp_lis3dh.c
+    App/Src/tp_protocol.c
+    App/Src/tp_qspi_flash.c
+    App/Src/tp_qrcode.c
+    App/Src/tp_epaper.c
+    App/Src/tp_ble_rn4871.c
+    App/Src/tp_modem_sim7080g.c
+    App/Src/tp_easter_egg.c
+    App/Src/tp_app.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
+    App/Inc
 )
 
 # Add project symbols (macros)

@@ -55,7 +55,16 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+extern ADC_HandleTypeDef  hadc1;
+extern I2C_HandleTypeDef  hi2c1;
+extern UART_HandleTypeDef hlpuart1;
+extern UART_HandleTypeDef huart1;
+extern QSPI_HandleTypeDef hqspi;
+extern RTC_HandleTypeDef  hrtc;
+extern SPI_HandleTypeDef  hspi1;
+extern TIM_HandleTypeDef  htim2;
 
+void SystemClock_Config(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

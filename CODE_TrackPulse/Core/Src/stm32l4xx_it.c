@@ -59,7 +59,7 @@ extern PCD_HandleTypeDef hpcd_USB_FS;
 extern UART_HandleTypeDef huart1;
 extern RTC_HandleTypeDef hrtc;
 /* USER CODE BEGIN EV */
-
+extern UART_HandleTypeDef hlpuart1;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -257,5 +257,8 @@ void USB_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+void LPUART1_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&hlpuart1);
+}
 /* USER CODE END 1 */

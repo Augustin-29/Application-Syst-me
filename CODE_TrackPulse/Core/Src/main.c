@@ -23,6 +23,11 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include "tp_app.h"
+#include "tp_ble_rn4871.h"
+#include "tp_board.h"
+#include "tp_config.h"
+#include "tp_modem_sim7080g.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -119,7 +124,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-
+  tp_app_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -129,8 +134,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    printf("Hello World!\n");
-    
+    tp_app_loop();
   }
   /* USER CODE END 3 */
 }
@@ -350,7 +354,14 @@ static void MX_LPUART1_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN LPUART1_Init 2 */
-
+  /* Override CubeMX 7-bit default -> 8-N-1 required by RN4871 & binary protocol */
+  hlpuart1.Init.WordLength = UART_WORDLENGTH_8B;
+  if (HAL_UART_Init(&hlpuart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  HAL_NVIC_SetPriority(LPUART1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(LPUART1_IRQn);
   /* USER CODE END LPUART1_Init 2 */
 
 }
@@ -460,7 +471,10 @@ static void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
-
+  if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR0) == TP_RTC_BKP_MAGIC)
+  {
+    return;
+  }
   /* USER CODE END Check_RTC_BKUP */
 
   /** Initialize RTC and set the Time and Date
@@ -676,7 +690,43 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == ACC_INT1_Pin)
+  {
+    tp_board_notify_acc_int1_isr();
+  }
+}
 
+void HAL_RTCEx_WakeUpTimerEventCallback(RTC_HandleTypeDef *hrtc_cb)
+{
+  UNUSED(hrtc_cb);
+  tp_board_notify_rtc_wakeup_isr();
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == LPUART1)
+  {
+    tp_ble_uart_rx_isr();
+  }
+  else if (huart->Instance == USART1)
+  {
+    tp_modem_uart_rx_isr();
+  }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == LPUART1)
+  {
+    tp_ble_uart_err_isr();
+  }
+  else if (huart->Instance == USART1)
+  {
+    tp_modem_uart_err_isr();
+  }
+}
 /* USER CODE END 4 */
 
 /**
