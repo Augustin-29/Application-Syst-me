@@ -4,4 +4,5 @@
 	(lib (name "B2B-PH-K-S") (type "KiCad") (uri "${KIPRJMOD}/empreinte/B2B-PH-K-S") (options "") (descr ""))
 	(lib (name "CMT-8530S-SMT") (type "KiCad") (uri "${KIPRJMOD}/empreinte/CMT-8530S-SMT") (options "") (descr ""))
 	(lib (name "TPS25200DRVR") (type "KiCad") (uri "${KIPRJMOD}/empreinte/TPS25200DRVR") (options "") (descr ""))
+	(lib (name "BMA456") (type "KiCad") (uri "${KIPRJMOD}/empreinte/BMA456") (options "") (descr ""))
 )
