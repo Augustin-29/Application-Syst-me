@@ -25,6 +25,10 @@ extern "C" {
 #define TP_DEFAULT_RTC_WAKE_SEC     3600U  /* 1 hour periodic wakeup */
 #define TP_DEFAULT_MOTION_STEPS     10U    /* 10 * 16 mg = 160 mg */
 
+/* Enable official Bosch BMA456_AN (V2.29.0) on-chip Any-Motion ASIC engine
+   (1002-byte config stream -> 0 STM32 Stop 2 wakeups while vehicle is parked) */
+#define TP_BMA456_USE_BOSCH_ANYMOTION_BLOB 1
+
 /* ---- Button Timings ---- */
 #define TP_BTN_DEBOUNCE_MS          30U
 #define TP_BTN_LONG_PRESS_MS        2500U

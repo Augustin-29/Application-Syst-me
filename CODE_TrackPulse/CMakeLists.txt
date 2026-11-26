@@ -48,7 +48,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/Src/tp_board.c
     App/Src/tp_battery.c
     App/Src/tp_buzzer.c
-    App/Src/tp_lis3dh.c
+    App/Src/tp_bma456.c
+    App/Src/tp_bma456_an_blob.c
     App/Src/tp_protocol.c
     App/Src/tp_qspi_flash.c
     App/Src/tp_qrcode.c

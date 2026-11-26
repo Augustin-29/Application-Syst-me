@@ -10,7 +10,7 @@
 #include "tp_config.h"
 #include "tp_easter_egg.h"
 #include "tp_epaper.h"
-#include "tp_lis3dh.h"
+#include "tp_bma456.h"
 #include "tp_modem_sim7080g.h"
 #include "tp_protocol.h"
 #include "tp_qspi_flash.h"
@@ -40,6 +40,8 @@ static uint32_t g_last_batt_ms       = 0U;
 static uint32_t g_last_heartbeat_ms  = 0U;
 static uint32_t g_last_led_ms        = 0U;
 static uint32_t g_ble_wake_until_ms  = 0U;
+static uint32_t g_next_rtc_report_s  = 0U;
+static bool     g_stop2_periph_asleep = false;
 
 /* Track Recording runtime */
 static uint8_t  g_track_rate_hz      = 10U;
@@ -213,7 +215,9 @@ static void enter_mode(tp_mode_t new_mode)
     switch (new_mode) {
         case TP_MODE_ANTITHEFT_SLEEP:
             tp_buzzer_stop();
-            (void)tp_lis3dh_config_antitheft(sb->motion_thresh_steps);
+            (void)tp_bma456_config_antitheft(sb->motion_thresh_steps);
+            g_next_rtc_report_s   = tp_rtc_get_epoch() + sb->rtc_wake_sec;
+            g_stop2_periph_asleep = false;
             if ((sb->epaper_cfg.flags & TP_EPD_FLAG_AUTO_MODE) != 0U) {
                 sb->epaper_cfg.template_id = TP_EPD_TPL_ANTITHEFT;
                 refresh_epaper_for_current_template(true);
@@ -222,7 +226,7 @@ static void enter_mode(tp_mode_t new_mode)
             break;
 
         case TP_MODE_TRACK_RECORDING:
-            (void)tp_lis3dh_config_track(g_track_rate_hz, g_track_range_g);
+            (void)tp_bma456_config_track(g_track_rate_hz, g_track_range_g);
             (void)tp_modem_gnss_enable(true);
             g_track_start_ms    = HAL_GetTick();
             g_last_sample_ms    = g_track_start_ms;
@@ -252,7 +256,7 @@ static void enter_mode(tp_mode_t new_mode)
             if (tp_ble_is_connected() && tp_modem_is_powered()) {
                 tp_modem_power_off();
             }
-            (void)tp_lis3dh_init();
+            (void)tp_bma456_init();
             break;
     }
 }
@@ -355,7 +359,7 @@ static void handle_frame(const tp_frame_t *f, tp_tx_channel_t ch)
 
         case TP_CMD_CLEAR_ALERT:
             g_alert_active = false;
-            (void)tp_lis3dh_rearm_int1();
+            (void)tp_bma456_rearm_int1();
             if (g_mode == TP_MODE_ANTITHEFT_SLEEP) {
                 refresh_epaper_for_current_template(false);
             }
@@ -636,48 +640,75 @@ static void run_antitheft_cycle(uint32_t now_ms)
 
     tp_superblock_t *sb = tp_flash_get_superblock();
 
-    /* Prepare ultra-low-power state (~16.5 uA total board) */
-    tp_buzzer_stop();
-    tp_epaper_sleep();
-    (void)tp_qspi_enter_deep_power_down();
-    tp_ble_enter_low_power();
-    if (tp_modem_is_powered()) {
-        tp_modem_power_off();
+    /* Put heavy peripherals to sleep ONCE before entering Stop 2 loop */
+    if (!g_stop2_periph_asleep) {
+        tp_buzzer_stop();
+        tp_epaper_sleep();
+        (void)tp_qspi_enter_deep_power_down();
+        tp_ble_enter_low_power();
+        if (tp_modem_is_powered()) {
+            tp_modem_power_off();
+        }
+        (void)tp_bma456_rearm_int1();
+        g_stop2_periph_asleep = true;
     }
-    (void)tp_lis3dh_rearm_int1();
 
-    /* Sleep in Stop 2 until ACC_INT1 (PA1), RTC WakeUp, or LPUART1 BLE byte */
-    tp_power_enter_stop2(sb->rtc_wake_sec);
+    /* Compute remaining seconds until next scheduled periodic RTC report */
+    uint32_t now_epoch = tp_rtc_get_epoch();
+    uint16_t sleep_sec = sb->rtc_wake_sec;
+    if (g_next_rtc_report_s > now_epoch) {
+        uint32_t rem = g_next_rtc_report_s - now_epoch;
+        sleep_sec = (rem > 65535UL) ? 65535U : (uint16_t)rem;
+    } else {
+        sleep_sec = 1U;
+    }
 
-    /* Wakeup! Release Flash DPD and re-arm BLE UART */
-    (void)tp_qspi_release_deep_power_down();
-    tp_ble_ensure_rx_armed();
+    /* Sleep in Stop 2 (~1.4 uA MCU) until BMA456 INT1 (PA1), RTC WakeUp, or LPUART1 BLE byte */
+    tp_power_enter_stop2(sleep_sec);
 
     bool woken_by_acc = tp_board_consume_acc_int1();
     bool woken_by_rtc = tp_board_consume_rtc_wakeup();
+    now_epoch         = tp_rtc_get_epoch();
 
     if (woken_by_acc) {
+        /* Ultra-fast FIFO inspection: W25Q64JV, E-Paper & SIM7080G remain asleep if calm! */
         tp_motion_event_t mot = {0};
-        if (tp_lis3dh_read_motion_event(&mot)) {
-            g_alert_active = true;
+        if (tp_bma456_process_antitheft_wakeup(&mot)) {
+            /* Confirmed vehicle motion/shock/tilt -> wake peripherals & send 4G alert */
+            (void)tp_qspi_release_deep_power_down();
+            tp_ble_ensure_rx_armed();
+            g_stop2_periph_asleep = false;
+            g_alert_active        = true;
             refresh_epaper_for_current_template(false);
             antitheft_report_via_4g(true, &mot);
+            g_next_rtc_report_s = tp_rtc_get_epoch() + sb->rtc_wake_sec;
+            return;
         }
-    } else if (woken_by_rtc) {
+        /* No motion in FIFO batch -> check if periodic RTC deadline also elapsed */
+        if (now_epoch < g_next_rtc_report_s) {
+            return; /* Return directly to Stop 2 on next loop iteration! */
+        }
+        woken_by_rtc = true;
+    }
+
+    /* Wake Flash & BLE for RTC periodic report or incoming BLE wakeup */
+    (void)tp_qspi_release_deep_power_down();
+    tp_ble_ensure_rx_armed();
+    g_stop2_periph_asleep = false;
+
+    if (woken_by_rtc || (now_epoch >= g_next_rtc_report_s)) {
         antitheft_report_via_4g(false, NULL);
+        g_next_rtc_report_s = tp_rtc_get_epoch() + sb->rtc_wake_sec;
     } else {
         /* Woken by LPUART1 BLE activity -> grant 15 s active window for phone commands */
         g_ble_wake_until_ms = HAL_GetTick() + 15000U;
     }
 }
 
-/* ---- Track Recording Acquisition Loop ---- */
+/* ---- Track Recording Acquisition Loop (Lossless BMA456 1 KB FIFO Drain) ---- */
 
 static void run_track_recording(uint32_t now_ms)
 {
-    uint32_t period_ms = 1000UL / (uint32_t)g_track_rate_hz;
-    if (period_ms < 20UL) period_ms = 20UL;
-
     /* Poll GNSS every 200 ms (up to 5 Hz) */
     if ((now_ms - g_last_gnss_poll_ms) >= 200U) {
         g_last_gnss_poll_ms = now_ms;
@@ -685,45 +716,72 @@ static void run_track_recording(uint32_t now_ms)
         (void)tp_modem_gnss_poll(&fix);
     }
 
-    /* High-frequency sampling step */
-    if ((now_ms - g_last_sample_ms) >= period_ms) {
-        uint32_t dt = now_ms - g_last_sample_ms;
+    /* Drain ALL buffered 16-bit XYZ frames from BMA456 1 KB Hardware FIFO every ~80 ms
+       (zero samples dropped even during 300 ms / 2 s E-Paper updates or Flash sector erases!) */
+    if ((now_ms - g_last_sample_ms) >= 80U) {
         g_last_sample_ms = now_ms;
 
-        (void)tp_lis3dh_read_mg(&g_last_accel);
         const tp_gnss_fix_t *fix = tp_modem_get_last_fix();
+        const uint16_t dt_ms     = tp_bma456_get_actual_dt_ms();
+        tp_accel_mg_t fifo_buf[32];
+        bool streamed_this_tick  = false;
 
-        tp_telemetry_sample_t sample = {
-            .dt_ms     = (dt > 65535UL) ? 65535U : (uint16_t)dt,
-            .lat_e7    = fix->lat_e7,
-            .lon_e7    = fix->lon_e7,
-            .speed_cms = fix->speed_cms,
-            .ax_mg     = g_last_accel.ax_mg,
-            .ay_mg     = g_last_accel.ay_mg
-        };
-
-        if (sample.speed_cms > g_track_max_spd_cms) {
-            g_track_max_spd_cms = sample.speed_cms;
-        }
-        float comb_g = sqrtf((float)sample.ax_mg * (float)sample.ax_mg +
-                             (float)sample.ay_mg * (float)sample.ay_mg);
-        if ((uint32_t)comb_g > g_track_peak_g_mg) {
-            g_track_peak_g_mg = ((uint32_t)comb_g > 65535UL) ? 65535U : (uint16_t)comb_g;
-        }
-
-        if (!tp_flash_session_append(&sample)) {
-            /* Stopped gracefully (e.g. battery < 3350 mV protection) */
-            enter_mode(TP_MODE_IDLE_STANDBY);
-            if (tp_ble_is_connected()) {
-                send_status(CH_BLE);
+        for (uint8_t pass = 0U; pass < 6U; pass++) {
+            uint16_t count = tp_bma456_fifo_read(fifo_buf, 32U);
+            if (count == 0U) {
+                if (pass == 0U && !tp_bma456_is_present()) {
+                    fifo_buf[0].ax_mg = 0;
+                    fifo_buf[0].ay_mg = 0;
+                    fifo_buf[0].az_mg = 1000;
+                    count = 1U;
+                } else {
+                    break;
+                }
             }
-            return;
-        }
 
-        /* Optional live BLE telemetry stream (~5 Hz to avoid saturating BLE) */
-        if (g_track_stream_ble && tp_ble_is_connected() && (now_ms - g_last_live_tx_ms) >= 200U) {
-            g_last_live_tx_ms = now_ms;
-            (void)send_on_channel(CH_BLE, TP_EVT_LIVE_TELEMETRY, &sample, sizeof(sample), false);
+            for (uint16_t i = 0U; i < count; i++) {
+                g_last_accel = fifo_buf[i];
+
+                tp_telemetry_sample_t sample = {
+                    .dt_ms     = dt_ms,
+                    .lat_e7    = fix->lat_e7,
+                    .lon_e7    = fix->lon_e7,
+                    .speed_cms = fix->speed_cms,
+                    .ax_mg     = g_last_accel.ax_mg,
+                    .ay_mg     = g_last_accel.ay_mg
+                };
+
+                if (sample.speed_cms > g_track_max_spd_cms) {
+                    g_track_max_spd_cms = sample.speed_cms;
+                }
+                float comb_g = sqrtf((float)sample.ax_mg * (float)sample.ax_mg +
+                                     (float)sample.ay_mg * (float)sample.ay_mg);
+                if ((uint32_t)comb_g > g_track_peak_g_mg) {
+                    g_track_peak_g_mg = ((uint32_t)comb_g > 65535UL) ? 65535U : (uint16_t)comb_g;
+                }
+
+                if (!tp_flash_session_append(&sample)) {
+                    /* Stopped gracefully (e.g. battery < 3350 mV protection) */
+                    enter_mode(TP_MODE_IDLE_STANDBY);
+                    if (tp_ble_is_connected()) {
+                        send_status(CH_BLE);
+                    }
+                    return;
+                }
+
+                /* Optional live BLE telemetry stream (~5 Hz on last drained sample) */
+                if (!streamed_this_tick && i == (uint16_t)(count - 1U) && count < 32U &&
+                    g_track_stream_ble && tp_ble_is_connected() &&
+                    (now_ms - g_last_live_tx_ms) >= 200U) {
+                    g_last_live_tx_ms  = now_ms;
+                    streamed_this_tick = true;
+                    (void)send_on_channel(CH_BLE, TP_EVT_LIVE_TELEMETRY, &sample, sizeof(sample), false);
+                }
+            }
+
+            if (count < 32U) {
+                break; /* FIFO drained completely */
+            }
         }
     }
 
@@ -746,7 +804,7 @@ void tp_app_init(void)
 
     tp_battery_init();
     tp_buzzer_init();
-    (void)tp_lis3dh_init();
+    (void)tp_bma456_init();
     (void)tp_flash_fs_init();
     tp_modem_init();
     (void)tp_ble_init(id->ble_name);
