@@ -1,6 +1,6 @@
 /**
  * @file    tp_qspi_flash.c
- * @brief   Winbond W25Q64JVSSIQ QSPI low-level driver & TrackPulse circular session store.
+ * @brief   8 MB QSPI NOR Flash driver (Renesas AT25QF641B-SHB-T & Winbond W25Q64JV) & TrackPulse FS.
  */
 #include "tp_qspi_flash.h"
 #include "tp_battery.h"
@@ -11,24 +11,29 @@
 #include <math.h>
 #include <string.h>
 
-/* W25Q64JV Commands */
-#define W25Q_CMD_WRITE_ENABLE       0x06U
-#define W25Q_CMD_READ_SR1           0x05U
-#define W25Q_CMD_READ_SR2           0x35U
-#define W25Q_CMD_WRITE_SR2          0x31U
-#define W25Q_CMD_QUAD_PAGE_PROG     0x32U
-#define W25Q_CMD_FAST_READ_QUAD     0x6BU
-#define W25Q_CMD_SECTOR_ERASE_4K    0x20U
-#define W25Q_CMD_BLOCK_ERASE_64K    0xD8U
-#define W25Q_CMD_JEDEC_ID           0x9FU
-#define W25Q_CMD_DEEP_POWER_DOWN    0xB9U
-#define W25Q_CMD_RELEASE_POWER_DOWN 0xABU
-#define W25Q_CMD_ENABLE_RESET       0x66U
-#define W25Q_CMD_RESET_DEVICE       0x99U
+/* Standard JEDEC / AT25QF641B / W25Q64JV Commands */
+#define NOR_CMD_WRITE_SR12          0x01U
+#define NOR_CMD_WRITE_ENABLE        0x06U
+#define NOR_CMD_READ_SR1            0x05U
+#define NOR_CMD_READ_SR2            0x35U
+#define NOR_CMD_WRITE_SR2           0x31U
+#define NOR_CMD_QUAD_PAGE_PROG      0x32U
+#define NOR_CMD_FAST_READ_QUAD      0x6BU
+#define NOR_CMD_SECTOR_ERASE_4K     0x20U
+#define NOR_CMD_BLOCK_ERASE_64K     0xD8U
+#define NOR_CMD_JEDEC_ID            0x9FU
+#define NOR_CMD_DEEP_POWER_DOWN     0xB9U
+#define NOR_CMD_RELEASE_POWER_DOWN  0xABU
+#define NOR_CMD_ENABLE_RESET        0x66U
+#define NOR_CMD_RESET_DEVICE        0x99U
 
-#define W25Q_SR1_WIP_MASK           0x01U
-#define W25Q_SR1_WEL_MASK           0x02U
-#define W25Q_SR2_QE_MASK            0x02U
+/* Supported JEDEC Manufacturer IDs (AT25QF641B: 0x1F 0x32 0x17 | W25Q64JV: 0xEF 0x40 0x17) */
+#define NOR_MFR_RENESAS_ADESTO      0x1FU
+#define NOR_MFR_WINBOND             0xEFU
+
+#define NOR_SR1_WIP_MASK            0x01U
+#define NOR_SR1_WEL_MASK            0x02U
+#define NOR_SR2_QE_MASK             0x02U
 
 #define TPFS_MAGIC                  0x54504653UL /* "TPFS" */
 #define TPSE_MAGIC                  0x54505345UL /* "TPSE" */
@@ -63,7 +68,7 @@ typedef struct {
 
 static active_session_t g_rec = {0};
 
-/* ---- Low-Level W25Q64JV Helpers ---- */
+/* ---- Low-Level QSPI NOR Helpers (AT25QF641B / W25Q64JV) ---- */
 
 static bool qspi_wait_ready(uint32_t timeout_ms)
 {
@@ -71,12 +76,12 @@ static bool qspi_wait_ready(uint32_t timeout_ms)
     QSPI_AutoPollingTypeDef cfg = {0};
 
     cmd.InstructionMode   = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction       = W25Q_CMD_READ_SR1;
+    cmd.Instruction       = NOR_CMD_READ_SR1;
     cmd.DataMode          = QSPI_DATA_1_LINE;
     cmd.NbData            = 1U;
 
     cfg.Match             = 0x00U;
-    cfg.Mask              = W25Q_SR1_WIP_MASK;
+    cfg.Mask              = NOR_SR1_WIP_MASK;
     cfg.MatchMode         = QSPI_MATCH_MODE_AND;
     cfg.StatusBytesSize   = 1U;
     cfg.Interval          = 0x10U;
@@ -89,17 +94,17 @@ static bool qspi_write_enable(void)
 {
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_WRITE_ENABLE;
+    cmd.Instruction     = NOR_CMD_WRITE_ENABLE;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
 
     QSPI_AutoPollingTypeDef cfg = {0};
-    cmd.Instruction     = W25Q_CMD_READ_SR1;
+    cmd.Instruction     = NOR_CMD_READ_SR1;
     cmd.DataMode        = QSPI_DATA_1_LINE;
     cmd.NbData          = 1U;
-    cfg.Match           = W25Q_SR1_WEL_MASK;
-    cfg.Mask            = W25Q_SR1_WEL_MASK;
+    cfg.Match           = NOR_SR1_WEL_MASK;
+    cfg.Mask            = NOR_SR1_WEL_MASK;
     cfg.MatchMode       = QSPI_MATCH_MODE_AND;
     cfg.StatusBytesSize = 1U;
     cfg.Interval        = 0x10U;
@@ -107,44 +112,64 @@ static bool qspi_write_enable(void)
     return (HAL_QSPI_AutoPolling(&hqspi, &cmd, &cfg, 100U) == HAL_OK);
 }
 
-static bool qspi_read_sr2(uint8_t *sr2)
+static bool qspi_read_sr(uint8_t opcode, uint8_t *val)
 {
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_READ_SR2;
+    cmd.Instruction     = opcode;
     cmd.DataMode        = QSPI_DATA_1_LINE;
     cmd.NbData          = 1U;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
-    return (HAL_QSPI_Receive(&hqspi, sr2, 100U) == HAL_OK);
+    return (HAL_QSPI_Receive(&hqspi, val, 100U) == HAL_OK);
 }
 
 static bool qspi_enable_quad_mode(void)
 {
     uint8_t sr2 = 0U;
-    if (!qspi_read_sr2(&sr2)) {
+    if (!qspi_read_sr(NOR_CMD_READ_SR2, &sr2)) {
         return false;
     }
-    if ((sr2 & W25Q_SR2_QE_MASK) != 0U) {
+    /* On AT25QF641B, QE (SR2 bit 1) is factory-enabled (1) by default -> fast exit without NV write */
+    if ((sr2 & NOR_SR2_QE_MASK) != 0U) {
         return true;
     }
+
+    /* Try dedicated Write Status Register 2 (0x31) first */
     if (!qspi_write_enable()) {
         return false;
     }
-    sr2 |= W25Q_SR2_QE_MASK;
+    sr2 |= NOR_SR2_QE_MASK;
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_WRITE_SR2;
+    cmd.Instruction     = NOR_CMD_WRITE_SR2;
     cmd.DataMode        = QSPI_DATA_1_LINE;
     cmd.NbData          = 1U;
+    if (HAL_QSPI_Command(&hqspi, &cmd, 100U) == HAL_OK &&
+        HAL_QSPI_Transmit(&hqspi, &sr2, 100U) == HAL_OK &&
+        qspi_wait_ready(150U)) {
+        uint8_t verify = 0U;
+        if (qspi_read_sr(NOR_CMD_READ_SR2, &verify) && ((verify & NOR_SR2_QE_MASK) != 0U)) {
+            return true;
+        }
+    }
+
+    /* Fallback: 2-byte Write Status Register 1+2 (0x01) for strict JEDEC compatibility */
+    uint8_t sr1 = 0U;
+    if (!qspi_read_sr(NOR_CMD_READ_SR1, &sr1) || !qspi_write_enable()) {
+        return false;
+    }
+    uint8_t sr12[2] = { sr1, sr2 };
+    cmd.Instruction = NOR_CMD_WRITE_SR12;
+    cmd.NbData      = 2U;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
-    if (HAL_QSPI_Transmit(&hqspi, &sr2, 100U) != HAL_OK) {
+    if (HAL_QSPI_Transmit(&hqspi, sr12, 100U) != HAL_OK) {
         return false;
     }
-    return qspi_wait_ready(100U);
+    return qspi_wait_ready(150U);
 }
 
 static void qspi_ensure_awake(void)
@@ -158,11 +183,11 @@ bool tp_qspi_release_deep_power_down(void)
 {
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_RELEASE_POWER_DOWN;
+    cmd.Instruction     = NOR_CMD_RELEASE_POWER_DOWN;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
-    HAL_Delay(1U); /* tRES1 >= 3 us */
+    HAL_Delay(1U); /* tRDPD / tRES1 <= 35 us (1 ms gives >25x margin) */
     g_in_dpd = false;
     return true;
 }
@@ -175,7 +200,7 @@ bool tp_qspi_enter_deep_power_down(void)
     (void)qspi_wait_ready(200U);
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_DEEP_POWER_DOWN;
+    cmd.Instruction     = NOR_CMD_DEEP_POWER_DOWN;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
@@ -188,7 +213,7 @@ bool tp_qspi_read_jedec_id(uint8_t id[3])
     qspi_ensure_awake();
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_JEDEC_ID;
+    cmd.Instruction     = NOR_CMD_JEDEC_ID;
     cmd.DataMode        = QSPI_DATA_1_LINE;
     cmd.NbData          = 3U;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
@@ -204,12 +229,12 @@ bool tp_qspi_init(void)
 
     (void)tp_qspi_release_deep_power_down();
 
-    /* Software reset sequence 0x66 + 0x99 */
+    /* Software reset sequence 0x66 + 0x99 (tRST ~30 us on AT25QF641B & W25Q64JV) */
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_ENABLE_RESET;
+    cmd.Instruction     = NOR_CMD_ENABLE_RESET;
     (void)HAL_QSPI_Command(&hqspi, &cmd, 50U);
-    cmd.Instruction     = W25Q_CMD_RESET_DEVICE;
+    cmd.Instruction     = NOR_CMD_RESET_DEVICE;
     (void)HAL_QSPI_Command(&hqspi, &cmd, 50U);
     HAL_Delay(2U);
 
@@ -217,8 +242,10 @@ bool tp_qspi_init(void)
     if (!tp_qspi_read_jedec_id(id)) {
         return false;
     }
-    /* Winbond manufacturer 0xEF, W25Q64JV capacity 0x17 (or W25Q32JV 0x16) */
-    if (id[0] != 0xEFU) {
+    /* Accept Renesas/Adesto AT25QF641B (0x1F 0x32 0x17) & Winbond W25Q64JV (0xEF 0x40 0x17) */
+    bool mfr_ok = (id[0] == NOR_MFR_RENESAS_ADESTO) || (id[0] == NOR_MFR_WINBOND);
+    bool bus_ok = (id[1] != 0x00U && id[1] != 0xFFU) && (id[2] != 0x00U && id[2] != 0xFFU);
+    if (!mfr_ok || !bus_ok) {
         return false;
     }
 
@@ -246,14 +273,15 @@ bool tp_qspi_erase_sector_4k(uint32_t addr)
     }
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_SECTOR_ERASE_4K;
+    cmd.Instruction     = NOR_CMD_SECTOR_ERASE_4K;
     cmd.AddressMode     = QSPI_ADDRESS_1_LINE;
     cmd.AddressSize     = QSPI_ADDRESS_24_BITS;
     cmd.Address         = addr & ~(uint32_t)(TP_FLASH_SECTOR_SIZE - 1U);
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
-    return qspi_wait_ready(500U);
+    /* AT25QF641B: 65 ms typ, up to 3 s worst-case (AutoPolling returns immediately when WIP=0) */
+    return qspi_wait_ready(3000U);
 }
 
 bool tp_qspi_erase_block_64k(uint32_t addr)
@@ -267,14 +295,15 @@ bool tp_qspi_erase_block_64k(uint32_t addr)
     }
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_BLOCK_ERASE_64K;
+    cmd.Instruction     = NOR_CMD_BLOCK_ERASE_64K;
     cmd.AddressMode     = QSPI_ADDRESS_1_LINE;
     cmd.AddressSize     = QSPI_ADDRESS_24_BITS;
     cmd.Address         = addr & ~0xFFFFUL;
     if (HAL_QSPI_Command(&hqspi, &cmd, 100U) != HAL_OK) {
         return false;
     }
-    return qspi_wait_ready(2500U);
+    /* AT25QF641B: 240 ms typ, generous 4 s worst-case timeout */
+    return qspi_wait_ready(4000U);
 }
 
 bool tp_qspi_read(uint32_t addr, uint8_t *buf, uint32_t len)
@@ -286,7 +315,7 @@ bool tp_qspi_read(uint32_t addr, uint8_t *buf, uint32_t len)
 
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_FAST_READ_QUAD;
+    cmd.Instruction     = NOR_CMD_FAST_READ_QUAD;
     cmd.AddressMode     = QSPI_ADDRESS_1_LINE;
     cmd.AddressSize     = QSPI_ADDRESS_24_BITS;
     cmd.Address         = addr;
@@ -307,7 +336,7 @@ static bool qspi_program_page(uint32_t addr, const uint8_t *buf, uint32_t len)
     }
     QSPI_CommandTypeDef cmd = {0};
     cmd.InstructionMode = QSPI_INSTRUCTION_1_LINE;
-    cmd.Instruction     = W25Q_CMD_QUAD_PAGE_PROG;
+    cmd.Instruction     = NOR_CMD_QUAD_PAGE_PROG;
     cmd.AddressMode     = QSPI_ADDRESS_1_LINE;
     cmd.AddressSize     = QSPI_ADDRESS_24_BITS;
     cmd.Address         = addr;

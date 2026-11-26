@@ -1,7 +1,7 @@
 # Rapport Technique Complet — Projet TrackPulse
 
 > **Système embarqué autonome hybride (Antivol IoT longue autonomie & Télémétrie Circuit haute fréquence)**  
-> **Plateforme matérielle :** STM32L433CCT6 (ARM Cortex-M4F) • Bosch BMA456 • Microchip RN4871 (BLE) • SIMCom SIM7080G (4G LTE-M / GNSS) • Winbond W25Q64JV (Flash NOR 8 Mo QSPI) • Waveshare 1,54" E-Paper V2 (200×200 px)  
+> **Plateforme matérielle :** STM32L433CCT6 (ARM Cortex-M4F) • Bosch BMA456 • Microchip RN4871 (BLE) • SIMCom SIM7080G (4G LTE-M / GNSS) • Renesas AT25QF641B-SHB-T (Flash NOR 8 Mo QSPI) • Waveshare 1,54" E-Paper V2 (200×200 px)  
 > **Application compagnon :** Android Kotlin / Jetpack Compose (`APK_TrackPulse`)  
 > **Firmware embarqué :** C11 / STM32 HAL / CMake + Ninja (`CODE_TrackPulse`)
 
@@ -23,7 +23,7 @@
 5. [Architecture et implémentation du firmware STM32 (`CODE_TrackPulse`)](#5-architecture-et-implémentation-du-firmware-stm32-code_trackpulse)
    - 5.1 [Organisation modulaire, compatibilité CubeMX et chaîne CMake](#51-organisation-modulaire-compatibilité-cubemx-et-chaîne-cmake)
    - 5.2 [Accéléromètre Bosch BMA456 : ASIC Any-Motion & FIFO 1 Ko](#52-accéléromètre-bosch-bma456--asic-any-motion--fifo-1-ko)
-   - 5.3 [Mémoire Flash NOR 8 Mo QSPI (`W25Q64JV`) et système de fichiers léger](#53-mémoire-flash-nor-8-mo-qspi-w25q64jv-et-système-de-fichiers-léger)
+   - 5.3 [Mémoire Flash NOR 8 Mo QSPI (`AT25QF641B`) et système de fichiers léger](#53-mémoire-flash-nor-8-mo-qspi-at25qf641b-et-système-de-fichiers-léger)
    - 5.4 [Connectivité hybride : BLE RN4871, 4G LTE-M / GNSS / MQTT SIM7080G & A-GPS](#54-connectivité-hybride--ble-rn4871-4g-lte-m--gnss--mqtt-sim7080g--a-gps)
    - 5.5 [Écran Waveshare 1,54" E-Paper V2, générateur QR Code & mini-jeux Easter Egg](#55-écran-waveshare-154-e-paper-v2-générateur-qr-code--mini-jeux-easter-egg)
    - 5.6 [Gestion batterie, buzzer PWM et gestion d'énergie `Stop 2`](#56-gestion-batterie-buzzer-pwm-et-gestion-dénergie-stop-2)
@@ -72,7 +72,7 @@ flowchart LR
     subgraph BOITIER["Boîtier TrackPulse (STM32L433CCT6 - 80 MHz / Stop 2)"]
         MCU["STM32L433CCT6\nCortex-M4F\n256 Ko Flash / 64 Ko RAM"]
         BMA["Bosch BMA456\nI2C1 400 kHz + INT1 PA1\nASIC Any-Motion + FIFO 1 Ko"]
-        QSPI["Winbond W25Q64JV\nQUADSPI 40 MHz\nFlash NOR 8 Mo"]
+        QSPI["Renesas AT25QF641B\nQUADSPI 40 MHz\nFlash NOR 8 Mo"]
         EPD["Waveshare 1.54 E-Paper V2\nSPI1 5 MHz\n200x200 px 1-bit"]
         BUZ["Buzzer CMT-8530S\nTIM2_CH1 PWM 2730 Hz"]
         BAT["Batterie Li-Ion 1S\nADC1_IN9 + BAT_STAT/FAULT"]
@@ -141,7 +141,7 @@ Le mappage ci-dessous est vérifié par rapport aux schémas électroniques et a
 |---|---|---|---|---|
 | **Bluetooth Low Energy** | Microchip **RN4871** | `LPUART1` (AF8) + GPIO | `PB10` (RX), `PB11` (TX), `PB12` (RTS), `PB13` (CTS), `PH0` (`RST_BLE`) | 115 200 bauds, **8-N-1**, contrôle de flux matériel **RTS/CTS**, horloge HSI16, `LPUART1_IRQn` prio 1. |
 | **Modem 4G & GNSS** | SIMCom **SIM7080G** | `USART1` (AF7) + GPIO | `PA9` (TX), `PA10` (RX), `PB14` (`PWRKEY`), `PB3` (`DTR_SIM7080G`) | 115 200 bauds, 8-N-1, sans RTS/CTS, `USART1_IRQn` prio 0. |
-| **Flash NOR 8 Mo** | Winbond **W25Q64JVSSIQ** | `QUADSPI` Bank 1 (AF10) | `PA2` (NCS), `PA3` (CLK), `PB1` (IO0), `PB0` (IO1), `PA7` (IO2), `PA6` (IO3) | **40 MHz** (`Prescaler=1`), `FlashSize=22` ($2^{22+1} = 8\text{ Mo}$), Mode 0, `CS High Time = 5 cycles`. |
+| **Flash NOR 8 Mo** | Renesas **AT25QF641B-SHB-T** *(compat. W25Q64JV)* | `QUADSPI` Bank 1 (AF10) | `PA2` (NCS), `PA3` (CLK), `PB1` (IO0), `PB0` (IO1), `PA7` (IO2), `PA6` (IO3) | **40 MHz** (`Prescaler=1`), `FlashSize=22` ($2^{22+1} = 8\text{ Mo}$), Mode 0, JEDEC `0x1F 0x32 0x17`, QE=1 usine. |
 | **Accéléromètre 3 axes** | Bosch **BMA456** | `I2C1` (AF4) + `EXTI1` | `PB8` (SCL), `PB9` (SDA), `PA1` (`ACC_INT1` EXTI1 front montant) | **Fast Mode 400 kHz** (`Timing = 0x00F12981`), adresse 7 bits `0x18` (`SDO=GND`, `CSB=+3V3`), pull-ups `R14/R15 = 4,7 kΩ`. |
 | **Écran E-Paper** | Waveshare **1,54" V2** (SSD1681) | `SPI1` (AF5) + GPIO | `PA5` (SCK), `PB5` (MOSI), `PH1` (`EPD_CS`), `PA15` (`EPD_DC`), `PA8` (`EPD_RST`), `PB15` (`EPD_BUSY`) | **5 MHz** (`Prescaler=16`), Mode 0 (CPOL=0, CPHA=0), MSB first, NSS logiciel. |
 | **Buzzer** | **CMT-8530S-SMT** + MOSFET Q2 | `TIM2_CH1` (AF1) | `PA0` (`TIM2_CH1`) | Base **1 MHz** (`PSC=79`), défaut 2 730 Hz (`ARR=365`, `CCR1=183`), PWM1 avec preload. |
@@ -322,13 +322,14 @@ Le pilote [tp_bma456.c](file:///c:/Users/augus/Documents/Cours/3A/Application_Sy
 
 ---
 
-### 5.3 Mémoire Flash NOR 8 Mo QSPI (`W25Q64JV`) et système de fichiers léger
+### 5.3 Mémoire Flash NOR 8 Mo QSPI (`AT25QF641B`) et système de fichiers léger
 
-Le pilote [tp_qspi_flash.c](file:///c:/Users/augus/Documents/Cours/3A/Application_Systeme/CODE_TrackPulse/App/Src/tp_qspi_flash.c) exploite le périphérique `QUADSPI` à **40 MHz** après activation du bit *Quad Enable* (`QE`, SR2 bit 1) :
-- Écriture en mode Quad Page Program (`0x32`, 4 lignes de données, pages de 256 octets).
-- Lecture rapide en mode Fast Read Quad Output (`0x6B`, 4 lignes de données, 8 dummy cycles).
-- Effacement par secteur 4 Ko (`0x20`) ou bloc 64 Ko (`0xD8`), avec synchronisation matérielle par `HAL_QSPI_AutoPolling` sur le bit `WIP` (SR1 bit 0).
-- Mise en veille profonde **Deep Power-Down (`0xB9`)** avant chaque entrée en `Stop 2` (< 1 µA) et réveil automatique (`0xAB`) au premier accès.
+Le pilote [tp_qspi_flash.c](file:///c:/Users/augus/Documents/Cours/3A/Application_Systeme/CODE_TrackPulse/App/Src/tp_qspi_flash.c) prend en charge nativement la **Renesas AT25QF641B-SHB-T** (JEDEC `0x1F 0x32 0x17`, boîtier SOIC-8 208-mil pin-to-pin compatible avec la W25Q64JV `0xEF`, choisie suite à la rupture Mouser) sur le périphérique `QUADSPI` à **40 MHz** :
+- **Quad Enable (`QE`, SR2 bit 1) :** déjà activé à `1` par défaut en sortie d'usine sur l'AT25QF641B (aucune écriture non-volatile superflue au boot), avec repli automatique `0x31` puis `0x01` (2 octets) si jamais `QE = 0`.
+- Écriture en mode Quad Page Program (`0x32`, 4 lignes de données, pages de 256 octets, ~9 mA typ).
+- Lecture rapide en mode Fast Read Quad Output (`0x6B`, 4 lignes de données, 8 dummy cycles, ~3–5 mA typ).
+- Effacement par secteur 4 Ko (`0x20`, 65 ms typ, timeout 3 s) ou bloc 64 Ko (`0xD8`, 240 ms typ, timeout 4 s), avec synchronisation matérielle immédiate par `HAL_QSPI_AutoPolling` sur le bit `WIP` (SR1 bit 0).
+- Mise en veille profonde **Deep Power-Down (`0xB9`)** avant chaque entrée en `Stop 2` (~1 µA typ) et réveil automatique (`0xAB`) au premier accès.
 
 #### Cartographie mémoire des 8 388 608 octets
 
@@ -446,7 +447,7 @@ La marge disponible en Release (**~191 Ko de Flash libre** et **~23 Ko de SRAM1 
 |---|---|---|
 | **STM32L433CCT6** | `Stop 2` (LSE + RTC + EXTI1 + LPUART1 wakeup) | ~1,4 µA |
 | **Bosch BMA456** | ASIC `BMA456_AN` Any-Motion, 50 Hz LP Avg2 | ~14–18 µA |
-| **Winbond W25Q64JV** | Deep Power-Down (`0xB9`) | < 1,0 µA |
+| **Renesas AT25QF641B-SHB-T** | Deep Power-Down (`0xB9`) | ~1,0 µA typ |
 | **Waveshare 1,54" E-Paper** | Deep Sleep (`0x10 0x01`) | < 5,0 µA (0 µA hors régulateur) |
 | **SIMCom SIM7080G** | Power Off (`AT+CPOWD=1`) | ~1–3 µA (fuite VRTC) |
 | **Microchip RN4871** | Low-Power / Advertising lent (ou Dormant) | ~2–15 µA (selon intervalle adv) |

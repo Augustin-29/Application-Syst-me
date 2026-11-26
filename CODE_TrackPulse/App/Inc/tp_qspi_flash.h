@@ -1,6 +1,7 @@
 /**
  * @file    tp_qspi_flash.h
- * @brief   Winbond W25Q64JVSSIQ (8 MB) QSPI low-level driver & TrackPulse Flash FS.
+ * @brief   8 MB QSPI NOR Flash low-level driver (Renesas AT25QF641B-SHB-T / Winbond W25Q64JV)
+ *          & TrackPulse circular Flash FS.
  *
  * Flash Map (PROTOCOL.md §4.3):
  *   0x000000 - 0x000FFF (Sector 0,      4 KB) : Superblock (config, pairing, high scores, offline fixes)
